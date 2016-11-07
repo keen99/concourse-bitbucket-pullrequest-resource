@@ -1,0 +1,51 @@
+#!usr/bin/env python3
+
+import requests
+import json
+import sys
+import os
+
+def reformat(key, value):
+	return {
+		"name": key,
+		"value": value
+	}
+
+config = json.loads("".join(sys.stdin.readlines()))
+source = config["source"]
+params = config["params"]
+
+myAuth = (source['username'], source['password'])
+
+inputDir = sys.argv[1]
+
+with open(os.path.join(inputDir, "version.json"), "r") as fp:
+	version = json.loads(fp.read())
+
+
+url = "http://{}/rest/api/1.0/projects/{}/repos/{}/pull-requests/{}/comments".format(
+	source["url"],
+	source["project"],
+	source["repo"],
+	version["id"]
+)
+
+resp = requests.post(url, auth=myAuth, json={
+	"text": "Commit {} deployed to {}".format(version["id"], "URL") #TODO
+})
+
+if resp.status_code >= 400:
+	print("got error response", file=sys.stderr)
+	print(resp.text)
+	print(resp, file=sys.stderr)
+	sys.exit(1)
+
+metadata = []
+metadata.append(reformat("pr", version["id"]))
+metadata.append(reformat("commit", version["commit"]))
+metadata.append(reformat("url", "placeholder"))
+
+print(json.dumps({
+	"version": version,
+	"metadata": metadata
+}, indent=2))

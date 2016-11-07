@@ -1,0 +1,55 @@
+#!usr/bin/env python3
+
+import requests
+import json
+import sys
+
+def getItemKey(item):
+	return item["updatedDate"]
+
+config = json.loads("".join(sys.stdin.readlines()))
+source = config["source"]
+version = config["version"]
+
+myAuth = (source['username'], source['password'])
+
+url = "http://{}/rest/api/1.0/projects/{}/repos/{}/pull-requests".format(
+	source["url"],
+	source["project"],
+	source["repo"]
+)
+
+prs = []
+gotLastPage = False
+offset = 0
+
+while gotLastPage != True:
+	resp = requests.get(url, auth=myAuth, params={"start": offset})
+	
+	if resp.status_code >= 400:
+		print("got error response", file=sys.stderr)
+		print(resp, file=sys.stderr)
+		sys.exit(1)
+	
+	data = resp.json()
+
+	if "nextPageStart" in data:
+		offset = data["nextPageStart"]
+	else:
+		gotLastPage = True
+	
+	prs = prs + data["values"]
+
+prsMinimized = []
+
+for pr in prs:
+	if pr["updatedDate"] < int(version["updatedDate"]):
+		continue
+
+	prsMinimized.append({
+		"id": str(pr["id"]),
+		"updatedDate": str(pr["updatedDate"]),
+		"commit": pr["fromRef"]["latestCommit"][:7]
+	});
+
+print(json.dumps(sorted(prsMinimized, key=getItemKey), indent=2))

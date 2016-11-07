@@ -1,0 +1,63 @@
+#!usr/bin/env python3
+
+import requests
+import json
+import yaml
+import sys
+import os
+
+
+def reformat(key, value):
+	return {
+		"name": key,
+		"value": value
+	}
+
+def getSshLink(links):
+	for link in links:
+		if link["name"] == "ssh":
+			return link["href"]
+
+	raise ValueError("couldn't find ssh link in response\n" + json.dumps(links))
+
+config = json.loads("".join(sys.stdin.readlines()))
+source = config["source"]
+version = config["version"]
+
+myAuth = (source['username'], source['password'])
+
+outputDir = sys.argv[1]
+
+url = "http://{}/rest/api/1.0/projects/{}/repos/{}/pull-requests/{}".format(
+	source["url"],
+	source["project"],
+	source["repo"],
+	version["id"]
+)
+
+resp = requests.get(url, auth=myAuth)
+
+if resp.status_code >= 400:
+	print("got error response", file=sys.stderr)
+	print(resp, file=sys.stderr)
+	sys.exit(1)
+
+data = resp.json()
+
+metadata = []
+metadata.append(reformat("author", data["author"]["user"]["name"]))
+metadata.append(reformat("description", data["description"]))
+metadata.append(reformat("source", data["fromRef"]["displayId"]))
+metadata.append(reformat("destination", data["toRef"]["displayId"]))
+metadata.append(reformat("commit", version["commit"]))
+
+print(json.dumps({
+	"version": version,
+	"metadata": metadata
+}, indent=2))
+
+with open(os.path.join(outputDir, "version.json"), "w") as fp:
+	print(json.dumps(version), file=fp)
+
+with open(os.path.join(outputDir, "version.yaml"), "w") as fp:
+	print(yaml.dump(version, default_flow_style=False), file=fp)
