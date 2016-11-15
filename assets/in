@@ -1,11 +1,11 @@
-#!usr/bin/env python3
+#!/usr/bin/env python3
 
 import requests
 import json
 import yaml
 import sys
 import os
-
+import subprocess
 
 def reformat(key, value):
 	return {
@@ -20,6 +20,15 @@ def getSshLink(links):
 
 	raise ValueError("couldn't find ssh link in response\n" + json.dumps(links))
 
+def envDump(obj):
+	lines = []
+
+	for k in obj:
+		lines.append("{}={}\n".format(k, obj[k]))
+	
+	return "".join(lines)
+		
+
 config = json.loads("".join(sys.stdin.readlines()))
 source = config["source"]
 version = config["version"]
@@ -28,21 +37,29 @@ myAuth = (source['username'], source['password'])
 
 outputDir = sys.argv[1]
 
-url = "http://{}/rest/api/1.0/projects/{}/repos/{}/pull-requests/{}".format(
+url = "{}/rest/api/1.0/projects/{}/repos/{}/pull-requests/{}".format(
 	source["url"],
 	source["project"],
 	source["repo"],
-	version["id"]
+	version["pr_no"]
 )
 
-resp = requests.get(url, auth=myAuth)
+params = {};
+
+if "state" in source:
+	params["state"] = source["state"]
+
+resp = requests.get(url, auth=myAuth, params=params)
 
 if resp.status_code >= 400:
 	print("got error response", file=sys.stderr)
-	print(resp, file=sys.stderr)
+	print(resp.text, file=sys.stderr)
 	sys.exit(1)
 
 data = resp.json()
+
+if not "description" in data:
+	data["description"] = "-";
 
 metadata = []
 metadata.append(reformat("author", data["author"]["user"]["name"]))
@@ -56,8 +73,54 @@ print(json.dumps({
 	"metadata": metadata
 }, indent=2))
 
+
 with open(os.path.join(outputDir, "version.json"), "w") as fp:
 	print(json.dumps(version), file=fp)
 
 with open(os.path.join(outputDir, "version.yaml"), "w") as fp:
 	print(yaml.dump(version, default_flow_style=False), file=fp)
+
+with open(os.path.join(outputDir, "version.env"), "w") as fp:
+	print(envDump(version), file=fp)
+
+infoDir = os.path.join(outputDir, "info")
+os.makedirs(infoDir, exist_ok=True)
+with open(os.path.join(infoDir, "pr_no"), "w") as fp:
+	print(version["pr_no"], file=fp)
+
+
+if "private_key" in source:
+	sshDir = os.path.expanduser("~/.ssh")
+	keyFilePath = os.path.join(sshDir, "id_rsa")
+
+	if not os.path.isfile(keyFilePath):
+		os.makedirs(sshDir, exist_ok=True)
+		with open(keyFilePath, "w") as fp:
+			print(source["private_key"], file=fp)
+		os.chmod(keyFilePath, 0o600)
+	
+	if "resolve_hostnames" in source:
+		with open("/etc/hosts", "a") as fp:
+			for k in source["resolve_hostnames"]:
+				print(source["resolve_hostnames"][k] + " " + k, file=fp)
+
+	if "trusted_hosts" in source:
+		with open(os.path.join(sshDir, "config"), "a") as fp:
+			for it in source["trusted_hosts"]:
+				print("Host {}\n\tStrictHostKeyChecking no".format(it), file=fp)
+	
+	gitUrl = getSshLink(data["fromRef"]["repository"]["links"]["clone"])
+	
+	cmd = """
+	[ -d /tmp/repo ] || git clone {0} /tmp/repo || exit 1
+
+	cd /tmp/repo || exit 1
+	git fetch && git checkout {1} || exit 1
+
+	cp -R ./ {2} || exit 1
+	""".format(gitUrl, version["commit"], os.path.join(outputDir, "repo/"))
+
+	ps = subprocess.call(["bash", "-c", cmd], stdout=sys.stderr)
+
+	if ps != 0:
+		sys.exit(ps)

@@ -1,55 +1,107 @@
-#!usr/bin/env python3
+#!/usr/bin/env python3
 
 import requests
 import json
 import sys
+import copy
 
 def getItemKey(item):
 	return item["updatedDate"]
 
+def requestPaginated(url, auth, defaultParams, ignoreNotFound=False, since=0):
+	params = copy.deepcopy(defaultParams)
+	gotLastPage = False
+	offset = 0
+	results = []
+
+	while gotLastPage != True:
+		params["start"] = offset
+		resp = requests.get(url, auth=auth, params=params)
+		
+		if resp.status_code == 404 and ignoreNotFound:
+			gotLastPage = True
+			continue
+		elif resp.status_code >= 400:
+			print("got error response", file=sys.stderr)
+			print("url = {}".format(url), file=sys.stderr)
+			print(resp.text, file=sys.stderr)
+			sys.exit(1)
+
+		data = resp.json()
+	
+		if "nextPageStart" in data:
+			offset = data["nextPageStart"]
+		else:
+			gotLastPage = True
+		
+		for value in data["values"]:
+			if "updatedDate" not in value or value["updatedDate"] > since:
+				results.append(value)
+			else:
+				gotLastPage = True
+				break
+
+	return results
+
 config = json.loads("".join(sys.stdin.readlines()))
 source = config["source"]
-version = config["version"]
+
+if "version" in config and config["version"] is not None and "updatedDate" in config["version"]:
+	since = int(config["version"]["updatedDate"])
+else:
+	since = 0
 
 myAuth = (source['username'], source['password'])
 
-url = "http://{}/rest/api/1.0/projects/{}/repos/{}/pull-requests".format(
-	source["url"],
-	source["project"],
-	source["repo"]
+	
+params = {};
+
+if "state" in source:
+	params["state"] = source["state"]
+
+filterBuildsOnly = source.get("filter_builds_only", False)
+
+prs = requestPaginated(
+	"{}/rest/api/1.0/projects/{}/repos/{}/pull-requests".format(
+		source["url"],
+		source["project"],
+		source["repo"]
+	),
+	myAuth, params,
+	since=since
 )
-
-prs = []
-gotLastPage = False
-offset = 0
-
-while gotLastPage != True:
-	resp = requests.get(url, auth=myAuth, params={"start": offset})
-	
-	if resp.status_code >= 400:
-		print("got error response", file=sys.stderr)
-		print(resp, file=sys.stderr)
-		sys.exit(1)
-	
-	data = resp.json()
-
-	if "nextPageStart" in data:
-		offset = data["nextPageStart"]
-	else:
-		gotLastPage = True
-	
-	prs = prs + data["values"]
 
 prsMinimized = []
 
-for pr in prs:
-	if pr["updatedDate"] < int(version["updatedDate"]):
-		continue
+for index,pr in enumerate(prs):
+	latestCommit = pr["fromRef"]["latestCommit"]
+	acceptPr = True
 
-	prsMinimized.append({
-		"id": str(pr["id"]),
-		"updatedDate": str(pr["updatedDate"]),
-		"commit": pr["fromRef"]["latestCommit"][:7]
-	});
+	if filterBuildsOnly:
+		acceptPr = False
+
+		builds = requestPaginated(
+			"{}/rest/build-status/1.0/commits/{}".format(
+				source["url"],
+				latestCommit
+			), myAuth, {},
+			ignoreNotFound=True
+		)
+
+		for build in builds:
+			if build["state"] == "SUCCESSFUL":
+				if filterBuildsOnly is True:
+					acceptPr = True
+					break
+				if type(filterBuildsOnly) is str and build["key"] == filterBuildsOnly:
+					acceptPr = True
+					break
+
+	if acceptPr:
+		prsMinimized.append({
+			"pr_no": str(pr["id"]),
+			"updatedDate": str(pr["updatedDate"]),
+			"commit": latestCommit[:7]
+		});
 
 print(json.dumps(sorted(prsMinimized, key=getItemKey), indent=2))
