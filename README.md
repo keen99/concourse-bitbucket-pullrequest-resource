@@ -50,7 +50,7 @@ Sample
     - name: bitbucket-pr
       type: docker-image
       source:
-        repository: aeecepoglu/concourse-bitbucket-pr-resource
+        repository: aecepoglu/concourse-bitbucket-pr-resource
 
     resources:
     - name: new-pr
