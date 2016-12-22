@@ -59,6 +59,12 @@ params = {};
 if "state" in source:
 	params["state"] = source["state"]
 
+	
+if "resolve_hostnames" in source:
+	with open("/etc/hosts", "a") as fp:
+		for k in source["resolve_hostnames"]:
+			print(source["resolve_hostnames"][k] + " " + k, file=fp)
+
 filterBuildsOnly = source.get("filter_builds_only", False)
 
 prs = requestPaginated(
