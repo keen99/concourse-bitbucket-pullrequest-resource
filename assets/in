@@ -49,6 +49,11 @@ params = {};
 if "state" in source:
 	params["state"] = source["state"]
 
+if "resolve_hostnames" in source:
+	with open("/etc/hosts", "a") as fp:
+		for k in source["resolve_hostnames"]:
+			print(source["resolve_hostnames"][k] + " " + k, file=fp)
+
 resp = requests.get(url, auth=myAuth, params=params)
 
 if resp.status_code >= 400:
@@ -98,11 +103,6 @@ if "private_key" in source:
 		with open(keyFilePath, "w") as fp:
 			print(source["private_key"], file=fp)
 		os.chmod(keyFilePath, 0o600)
-	
-	if "resolve_hostnames" in source:
-		with open("/etc/hosts", "a") as fp:
-			for k in source["resolve_hostnames"]:
-				print(source["resolve_hostnames"][k] + " " + k, file=fp)
 
 	if "trusted_hosts" in source:
 		with open(os.path.join(sshDir, "config"), "a") as fp:
