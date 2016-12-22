@@ -5,10 +5,8 @@ import json
 import sys
 import copy
 
-def getItemKey(item):
-	return item["updatedDate"]
 
-def requestPaginated(url, auth, defaultParams, ignoreNotFound=False, since=0):
+def requestPaginated(url, auth, defaultParams, ignoreNotFound=False, untilId=None):
 	params = copy.deepcopy(defaultParams)
 	gotLastPage = False
 	offset = 0
@@ -35,9 +33,9 @@ def requestPaginated(url, auth, defaultParams, ignoreNotFound=False, since=0):
 			gotLastPage = True
 		
 		for value in data["values"]:
-			if "updatedDate" not in value or value["updatedDate"] > since:
-				results.append(value)
-			else:
+			results.append(value)
+
+			if "id" in value and untilId == value["id"]:
 				gotLastPage = True
 				break
 
@@ -45,11 +43,10 @@ def requestPaginated(url, auth, defaultParams, ignoreNotFound=False, since=0):
 
 config = json.loads("".join(sys.stdin.readlines()))
 source = config["source"]
+lastPrId = None
 
-if "version" in config and config["version"] is not None and "updatedDate" in config["version"]:
-	since = int(config["version"]["updatedDate"])
-else:
-	since = 0
+if "version" in config and config["version"] is not None and "pr_no" in config["version"]:
+	lastPrId = int(config["version"]["pr_no"])
 
 myAuth = (source['username'], source['password'])
 
@@ -68,7 +65,7 @@ prs = requestPaginated(
 		source["repo"]
 	),
 	myAuth, params,
-	since=since
+	untilId=lastPrId
 )
 
 prsMinimized = []
@@ -100,8 +97,7 @@ for index,pr in enumerate(prs):
 	if acceptPr:
 		prsMinimized.append({
 			"pr_no": str(pr["id"]),
-			"updatedDate": str(pr["updatedDate"]),
 			"commit": latestCommit[:7]
 		});
 
-print(json.dumps(sorted(prsMinimized, key=getItemKey), indent=2))
+print(json.dumps(prsMinimized[::-1], indent=2))
