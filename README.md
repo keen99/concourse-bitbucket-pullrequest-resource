@@ -56,12 +56,12 @@ Sample
     - name: new-pr
       type: bitbucket-pr
       source:
-        username: MY_USERNAME
-        password: MY_PASSWORD
-        url: http://my_bitbucket_instance
-        project: my_project
-        repo: my_repo
-        private_key: MY_PRIVATE_KEY_FOR_GIT
+        username: {{MY_USERNAME}}
+        password: {{MY_PASSWORD}}
+        url: {{http://my_bitbucket_instance}}
+        project: {{my_project}}
+        repo: {{my_repo}}
+        private_key: {{MY_PRIVATE_KEY_FOR_GIT}}
 
     jobs:
     - name: build-pr
